@@ -9,7 +9,6 @@ const setSessionCookie = _setSessionCookie as (
   data: { session: Record<string, unknown>; user: Record<string, unknown> }
 ) => Promise<void>;
 
-import type { User } from 'better-auth';
 import { db } from '@db/drizzle';
 import { exchangeToken, TokenExchangeError } from '../token-exchange';
 import { ZTokenExchangeQuery } from '@cio/utils/validation/organization';
@@ -40,14 +39,6 @@ export function tokenExchange(): BetterAuthPlugin {
         const { token, redirect } = query.data;
         const redirectUrl = redirect && redirect.startsWith('/') ? redirect : '/';
 
-        const auth = (
-          c as unknown as { context: { auth: { api: { signUpEmail: (args: unknown) => Promise<{ user: unknown }> } } } }
-        ).context?.auth;
-        if (!auth?.api?.signUpEmail) {
-          console.error('Token exchange: auth.api not available on context');
-          return c.json({ error: 'Server configuration error' }, { status: 500 });
-        }
-
         let result: {
           user: {
             id: string;
@@ -61,14 +52,7 @@ export function tokenExchange(): BetterAuthPlugin {
           orgId: string;
         };
         try {
-          const raw = await exchangeToken(
-            token,
-            auth.api as {
-              signUpEmail: (args: {
-                body: { name: string; email: string; password: string };
-              }) => Promise<{ user: User }>;
-            }
-          );
+          const raw = await exchangeToken(token);
           result = { user: { ...raw.user, image: raw.user.image ?? null }, orgId: raw.orgId };
         } catch (err: unknown) {
           if (err instanceof TokenExchangeError) {
