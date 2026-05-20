@@ -22,10 +22,6 @@ export class TokenExchangeError extends Error {
   }
 }
 
-/**
- * Exchange a JWT token for a user and org. Verifies signature with org's signing secret,
- * finds or creates user, ensures org membership. Caller is responsible for creating session and setting cookie.
- */
 function profileUsername(email: string): string {
   const emailPrefix = email.match(/^([^@]+)@/)?.[1] ?? 'user';
   return `${emailPrefix}${Date.now()}`;
@@ -98,6 +94,11 @@ async function findOrCreateUser(email: string, name: string, avatar?: string): P
   return createdUser as User;
 }
 
+/**
+ * Exchange a JWT token for a user and org. Verifies signature with an active
+ * token-auth config or the Farther env fallback, finds or creates the LMS user,
+ * ensures a profile and org membership, then returns data for session creation.
+ */
 export async function exchangeToken(token: string): Promise<{ user: User; orgId: string }> {
   const configs = await getAllActiveTokenAuth();
   const envSigningSecret = process.env.FARTHER_LMS_TOKEN_EXCHANGE_SECRET ?? process.env.CLASSROOMIO_TOKEN_EXCHANGE_SECRET;
@@ -146,7 +147,6 @@ export async function exchangeToken(token: string): Promise<{ user: User; orgId:
 
   const user = await findOrCreateUser(emailLower, name ?? emailLower.split('@')[0], avatar);
   await ensureProfile(user, avatar);
-
   await ensureOrgMembership(user.id, user.email ?? emailLower, orgId);
 
   if (avatar) {

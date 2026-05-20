@@ -2,7 +2,6 @@ import * as schema from '@db/schema';
 
 import type { BetterAuthPlugin } from 'better-auth';
 import { createAuthEndpoint } from 'better-auth/api';
-// Session cookie helper: runtime accepts (ctx, { session, user }), typings show 1 arg
 import { setSessionCookie as _setSessionCookie } from 'better-auth/cookies';
 const setSessionCookie = _setSessionCookie as (
   ctx: unknown,
