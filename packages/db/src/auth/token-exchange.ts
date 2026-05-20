@@ -1,15 +1,17 @@
 import * as schema from '@db/schema';
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { jwtVerify } from 'jose';
 
 import { getAllActiveTokenAuth } from '@db/queries/organization/token-auth';
 import { ensureOrgMembership } from './hooks/sso-provisioning';
 import { db } from '@db/drizzle';
+import { ROLE } from '@cio/utils/constants';
 import { ZTokenExchangePayload } from '@cio/utils/validation/organization';
 import type { User } from 'better-auth';
 
 const MAX_TOKEN_AGE_SEC = 5 * 60; // 5 minutes
+const DEFAULT_FARTHER_ADMIN_EMAILS = ['tim.bohnett@farther.com', 'ben.carr@farther.com'];
 
 export class TokenExchangeError extends Error {
   constructor(
@@ -94,6 +96,29 @@ async function findOrCreateUser(email: string, name: string, avatar?: string): P
   return createdUser as User;
 }
 
+function fartherAdminEmails(): Set<string> {
+  const configured = (process.env.FARTHER_LMS_ADMIN_EMAILS ?? process.env.CLASSROOMIO_ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+
+  return new Set([...DEFAULT_FARTHER_ADMIN_EMAILS, ...configured]);
+}
+
+function isFartherAdminEmail(email: string): boolean {
+  return fartherAdminEmails().has(email.toLowerCase());
+}
+
+async function ensureAdminRole(userId: string, orgId: string): Promise<void> {
+  await db
+    .update(schema.organizationmember)
+    .set({
+      roleId: ROLE.ADMIN,
+      verified: true
+    })
+    .where(and(eq(schema.organizationmember.organizationId, orgId), eq(schema.organizationmember.profileId, userId)));
+}
+
 /**
  * Exchange a JWT token for a user and org. Verifies signature with an active
  * token-auth config or the Farther env fallback, finds or creates the LMS user,
@@ -144,10 +169,15 @@ export async function exchangeToken(token: string): Promise<{ user: User; orgId:
 
   const { email, name, avatar } = parsed.data;
   const emailLower = email.toLowerCase();
+  const adminRoleId = isFartherAdminEmail(emailLower) ? ROLE.ADMIN : undefined;
 
   const user = await findOrCreateUser(emailLower, name ?? emailLower.split('@')[0], avatar);
   await ensureProfile(user, avatar);
-  await ensureOrgMembership(user.id, user.email ?? emailLower, orgId);
+  await ensureOrgMembership(user.id, user.email ?? emailLower, orgId, adminRoleId);
+
+  if (adminRoleId === ROLE.ADMIN) {
+    await ensureAdminRole(user.id, orgId);
+  }
 
   if (avatar) {
     await db
